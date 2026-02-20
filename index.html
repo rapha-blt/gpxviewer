@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <title>Visionneuse GPX 3D - Mapbox Standard</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        .upload-ctrl {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            backdrop-filter: blur(5px);
+        }
+        input[type="file"] { display: none; }
+        .btn-upload {
+            background: #007cbf;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            display: inline-block;
+            transition: background 0.3s;
+        }
+        .btn-upload:hover { background: #005a8b; }
+        #status { margin-top: 10px; font-size: 13px; color: #444; }
+    </style>
+</head>
+<body>
+
+<div class="upload-ctrl">
+    <label class="btn-upload">
+        📁 Sélectionner un fichier GPX
+        <input type="file" id="gpx-input" accept=".gpx">
+    </label>
+    <div id="status">En attente d'un fichier...</div>
+</div>
+
+<div id="map"></div>
+
+<script>
+    // MAPBOX TOKEN
+    mapboxgl.accessToken = 'MAPBOX TOKEN';
+
+    const map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/standard', 
+        center: [2.3522, 48.8566], 
+        zoom: 11,
+        pitch: 60,
+    });
+
+    map.addControl(new mapboxgl.NavigationControl());
+
+    document.getElementById('gpx-input').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        document.getElementById('status').innerText = "Chargement : " + file.name;
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            try {
+                const xmlText = event.target.result;
+                const parser = new DOMParser();
+                const gpxDoc = parser.parseFromString(xmlText, "text/xml");
+                
+                if (typeof toGeoJSON === 'undefined') {
+                    throw new Error("La bibliothèque de conversion n'est pas chargée.");
+                }
+
+                const geojson = toGeoJSON.gpx(gpxDoc);
+
+                if (!geojson.features || geojson.features.length === 0) {
+                    throw new Error("Le fichier GPX ne contient pas de données valides.");
+                }
+
+                displayRoute(geojson);
+            } catch (err) {
+                console.error(err);
+                alert("Erreur : " + err.message);
+                document.getElementById('status').innerText = "Erreur de chargement.";
+            }
+        };
+        reader.readAsText(file);
+    });
+
+    function displayRoute(data) {
+        if (map.getLayer('route-line')) map.removeLayer('route-line');
+        if (map.getSource('route')) map.removeSource('route');
+
+        map.addSource('route', {
+            type: 'geojson',
+            data: data
+        });
+
+        map.addLayer({
+            id: 'route-line',
+            type: 'line',
+            source: 'route',
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: {
+                'line-color': '#FF5722',
+                'line-width': 6,
+                'line-emissive-strength': 1 
+            }
+        });
+
+        const bounds = new mapboxgl.LngLatBounds();
+        
+        data.features.forEach(feature => {
+            if (feature.geometry.type === 'LineString') {
+                feature.geometry.coordinates.forEach(coord => bounds.extend(coord));
+            } else if (feature.geometry.type === 'MultiLineString') {
+                feature.geometry.coordinates.forEach(line => {
+                    line.forEach(coord => bounds.extend(coord));
+                });
+            }
+        });
+
+        if (!bounds.isEmpty()) {
+            map.fitBounds(bounds, { padding: 80, duration: 2000 });
+            document.getElementById('status').innerText = "Trace affichée !";
+        }
+    }
+</script>
+
+</body>
+</html>
